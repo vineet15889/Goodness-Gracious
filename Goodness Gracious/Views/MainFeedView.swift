@@ -42,6 +42,7 @@ struct MainFeedView: View {
                 
                 // Record button at bottom right
                 HStack {
+                    
                     Button(action: { showRecorder = true }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 56))
@@ -50,10 +51,11 @@ struct MainFeedView: View {
                             .shadow(radius: 6)
                     }
                     .padding(.trailing, 20)
-                    .padding(.bottom, 30)
+                    .padding(.bottom, 40)
                     Spacer()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             
             // Upload overlay
             if uploader.isUploading {
@@ -67,7 +69,21 @@ struct MainFeedView: View {
         }
         .ignoresSafeArea()
         .statusBarHidden()
-        .task { feed.loadFeed() }
+        .task {
+            feed.loadFeed()
+        }
+        .onChange(of: feed.videos) { newVideos in
+            // Initialize players for any new videos
+            if !newVideos.isEmpty {
+                for (index, video) in newVideos.enumerated() {
+                    if players[index] == nil {
+                        let player = AVPlayer(url: video.url)
+                        player.actionAtItemEnd = .none
+                        players[index] = player
+                    }
+                }
+            }
+        }
         .onChange(of: uploader.success) { success in
             if success {
                 // Auto-refresh feed and reset success state after upload
@@ -115,89 +131,106 @@ struct MainFeedView: View {
     }
     
     private var videoFeedView: some View {
-        GeometryReader { geometry in
-            TabView(selection: $currentVideoIndex) {
-                ForEach(Array(feed.videos.enumerated()), id: \.element.id) { index, video in
-                    ZStack {
-                        // Video player
-                        VideoPlayerView(player: playerFor(index: index), geometry: geometry)
+        TabView(selection: $currentVideoIndex) {
+            ForEach(Array(feed.videos.enumerated()), id: \.element.id) { index, video in
+                ZStack {
+                    // Video player
+                    if let player = players[index] {
+                        VideoPlayer(player: player)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .edgesIgnoringSafeArea(.all)
                             .onAppear {
                                 if currentVideoIndex == index {
-                                    playerFor(index: index).play()
+                                    player.play()
                                 }
                             }
                             .onDisappear {
-                                playerFor(index: index).pause()
+                                player.pause()
                             }
+                    } else {
+                        Color.black
+                            .edgesIgnoringSafeArea(.all)
+                    }
+                    
+                    // Video controls overlay
+                    VStack {
+                        Spacer()
                         
-                        // Video controls overlay
-                        VStack {
-                            Spacer()
-                            
-                            // Bottom controls
-                            HStack(alignment: .bottom) {
-                                // Caption and user info
-                                VStack(alignment: .leading, spacing: 8) {
-                                    if let caption = video.caption {
-                                        Text(caption)
-                                            .font(.callout)
-                                            .foregroundStyle(.white)
-                                            .lineLimit(2)
-                                    }
-                                    Text("@\(video.userId.prefix(8))")
-                                        .font(.caption)
-                                        .foregroundStyle(.white.opacity(0.8))
+                        // Bottom controls
+                        HStack(alignment: .bottom) {
+                            // Caption and user info
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let caption = video.caption {
+                                    Text(caption)
+                                        .font(.callout)
+                                        .foregroundStyle(.white)
+                                        .lineLimit(2)
                                 }
-                                .padding(.leading)
-                                .padding(.bottom, 20)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                
-                                // Reaction buttons
-                                VStack(spacing: 20) {
-                                    Button(action: {}) {
-                                        VStack(spacing: 4) {
+                                Text("@\(video.userId.prefix(8))")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
+                            .padding(.leading)
+                            .padding(.bottom, 20)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            // Reaction buttons
+                            VStack(spacing: 20) {
+                                // Like button
+                                Button(action: {
+                                    // Reset after animation
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    }
+                                }) {
+                                    VStack(spacing: 4) {
+                                        ZStack {
                                             Image(systemName: "heart.fill")
                                                 .font(.system(size: 28))
                                                 .foregroundStyle(.white)
-                                            Text("Like")
-                                                .font(.caption2)
-                                                .foregroundStyle(.white)
+                                            FloatingHeartsView(interval: 0.5, horizontalRange: 40, verticalDistance: 380, baseDuration: 4.2)
                                         }
-                                    }
-                                    
-                                    Button(action: { showComments = true }) {
-                                        VStack(spacing: 4) {
-                                            Image(systemName: "bubble.right.fill")
-                                                .font(.system(size: 28))
-                                                .foregroundStyle(.white)
-                                            Text("Comment")
-                                                .font(.caption2)
-                                                .foregroundStyle(.white)
-                                        }
+                                        Text("Like")
+                                            .font(.caption2)
+                                            .foregroundStyle(.white)
                                     }
                                 }
-                                .padding(.trailing)
-                                .padding(.bottom, 20)
+                                
+                                // Comment button
+                                Button(action: { showComments = true }) {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: "bubble.right.fill")
+                                            .font(.system(size: 28))
+                                            .foregroundStyle(.white)
+                                        Text("Comment")
+                                            .font(.caption2)
+                                            .foregroundStyle(.white)
+                                    }
+                                }
                             }
+                            .padding(.trailing)
+                            .padding(.bottom, 20)
                         }
                     }
-                    .tag(index)
                 }
+                .tag(index)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .edgesIgnoringSafeArea(.all)
             }
-            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .onChange(of: currentVideoIndex) { newIndex in
-                // Pause all videos except current
-                players.forEach { index, player in
-                    if index == newIndex {
-                        player.play()
-                    } else {
-                        player.pause()
-                    }
+        }
+        .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .edgesIgnoringSafeArea(.all)
+        .background(Color.black)
+        .onChange(of: currentVideoIndex) { newIndex in
+            // Pause all videos except current
+            players.forEach { index, player in
+                if index == newIndex {
+                    player.play()
+                } else {
+                    player.pause()
                 }
             }
         }
-        .background(Color.black)
     }
     
     private var uploadingOverlay: some View {
@@ -294,7 +327,7 @@ struct MainFeedView: View {
         }
         .transition(.move(edge: .bottom))
     }
-    
+
     private var profileView: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -342,42 +375,4 @@ struct MainFeedView: View {
             }
         }
     }
-    
-    // MARK: - Helper Methods
-    
-    private func playerFor(index: Int) -> AVPlayer {
-        if let player = players[index] {
-            return player
-        } else {
-            let player = AVPlayer(url: feed.videos[index].url)
-            player.actionAtItemEnd = .none
-            players[index] = player
-            return player
-        }
-    }
 }
-
-// MARK: - Supporting Views
-
-struct VideoPlayerView: View {
-    let player: AVPlayer
-    let geometry: GeometryProxy
-    
-    var body: some View {
-        VideoPlayer(player: player)
-            .disabled(true) // Disable default controls
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .onAppear {
-                // Loop video
-                NotificationCenter.default.addObserver(
-                    forName: .AVPlayerItemDidPlayToEndTime,
-                    object: player.currentItem,
-                    queue: .main) { _ in
-                        player.seek(to: .zero)
-                        player.play()
-                    }
-            }
-    }
-}
-
-
