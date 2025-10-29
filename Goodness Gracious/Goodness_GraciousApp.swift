@@ -6,12 +6,17 @@
 //
 
 import SwiftUI
+import UIKit
 
 @main
 struct Goodness_GraciousApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var authViewModel = AuthViewModel()
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(authViewModel)
+                .preferredColorScheme(.dark)
         }
     }
 }
